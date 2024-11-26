@@ -4,17 +4,38 @@ import plotly.express as px
 import pandas as pd
 import cv2
 import time
+import tensorflow as tf
+import numpy as np
+from collections import Counter
 
-st.title("Página de la Webcam")
-data = pd.read_csv("data2.csv")
+# Título de la aplicación
+st.title("Página de la Webcam con Detección de Emociones")
 
-#Placeholder para reproducir la camara
+# Cargar tu modelo preentrenado
+model = tf.keras.models.load_model("modelEmocion.h5")
+
+# Lista de clases de emociones (con las clases que mencionaste)
+emotion_labels = ['angry', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise']
+
+# Placeholder para reproducir la cámara
 frame_placeholder = st.empty()
 
-# Inicia la camara
+# Inicia la cámara
 cap = cv2.VideoCapture(0)
 
-# Loop para tomar frames de la camara y desplegarlos
+# Lista para almacenar las emociones detectadas
+emotion_counts = {emotion: 0 for emotion in emotion_labels}
+
+# Preprocesamiento de la imagen (según cómo tu modelo haya sido entrenado)
+def preprocess_image(image):
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)  # Si tu modelo fue entrenado con imágenes en escala de grises
+    image = cv2.resize(image, (48, 48))  # Ajusta el tamaño si es necesario (48x48 es común en muchos modelos)
+    image = image / 255.0  # Normalizar la imagen
+    image = np.expand_dims(image, axis=-1)  # Añadir una dimensión extra para la profundidad de color
+    image = np.expand_dims(image, axis=0)  # Añadir una dimensión extra para el batch size
+    return image
+
+# Loop para tomar frames de la cámara y analizarlos
 if cap.isOpened():
     for _ in range(100):  # Limite de 100 frames para terminar el loop
         ret, frame = cap.read()
@@ -22,35 +43,48 @@ if cap.isOpened():
             st.write("Error: No frame available.")
             break
         
-        # Convert the frame to RGB
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frame_pil = Image.fromarray(frame_rgb)
+        # Preprocesamiento de la imagen
+        processed_image = preprocess_image(frame)
+
+        # Realizar la predicción de todas las emociones
+        emotion_probs = model.predict(processed_image)
         
-        # Display the frame
-        frame_placeholder.image(frame_pil, caption="Analizando emociones")
+        # Contar las ocurrencias de todas las emociones detectadas
+        for i, emotion in enumerate(emotion_labels):
+            # Asignar la probabilidad para cada emoción
+            emotion_prob = emotion_probs[0][i]
+            emotion_counts[emotion] += emotion_prob  # Sumar la probabilidad para cada emoción
+
+        # Mostrar el frame y la emoción detectada
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # Convertir el frame a RGB
+        frame_pil = Image.fromarray(frame_rgb)  # Convertir a imagen de PIL para Streamlit
+        caption = f"Probabilidades de emociones detectadas."
         
-        # Pause briefly to allow other elements to render
+        # Mostrar la imagen
+        frame_placeholder.image(frame_pil, caption=caption)
+
+        # Pausar brevemente para permitir que otros elementos se rendericen
         time.sleep(0.1)
 else:
     st.write("Error: Unable to open webcam.")
 
-# Release the webcam
+# Liberar la cámara
 cap.release()
 
-# Process and display the bar chart
-avg_income_by_profession = data.groupby('Profession')['Income'].mean().reset_index()
+# Convertir los resultados de la detección de emociones en un DataFrame
+emotion_data = pd.DataFrame(list(emotion_counts.items()), columns=['Emotion', 'Probability Sum'])
 
-# Create bar plot
+# Crear gráfico de barras para las emociones detectadas
 fig = px.bar(
-    avg_income_by_profession,
-    x='Profession',
-    y='Income',
-    title='Porcentaje de emocion encontrada',
-    labels={'Income': 'Average Income', 'Profession': 'Profession'},
-    color='Income',
+    emotion_data,
+    x='Emotion',
+    y='Probability Sum',
+    title='Frecuencia y Probabilidad de Emociones Detectadas',
+    labels={'Emotion': 'Emoción', 'Probability Sum': 'Suma de Probabilidades'},
+    color='Probability Sum',
     color_continuous_scale='Spectral'
 )
 
-# Display plot in Streamlit
-st.title("Emociones encontradas")
+# Mostrar el gráfico en Streamlit
+st.title("Gráfico de Emociones Detectadas")
 st.plotly_chart(fig)
